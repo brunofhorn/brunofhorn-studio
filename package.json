@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/worker.mjs",
     "once": "node --env-file-if-exists=.env src/worker.mjs --once",
+    "serve": "node --env-file-if-exists=.env src/worker.mjs --serve",
     "setup": "playwright install chromium && remotion browser ensure",
     "studio": "remotion studio --props=./reel/cenas.json"
   },

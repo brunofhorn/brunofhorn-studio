@@ -1,10 +1,16 @@
 // Worker do Estúdio: pega a fila de renderização na API, gera os JPGs (post e carrossel) ou o
 // MP4 (reel), envia ao storage e devolve. Roda no PC ou num servidor com Chromium e ffmpeg.
 //
-//   npm start          fica escutando a fila
+//   npm start          fica consultando a fila (PC)
 //   npm run once       renderiza o que estiver na fila e sai
+//   npm run serve      espera a API acordá-lo com POST /wake (Railway com Serverless)
+//
+// No modo `serve` o worker não faz nenhuma chamada enquanto a fila está vazia: sem tráfego de
+// saída, a Railway põe o serviço para dormir e ele deixa de custar.
 
+import { timingSafeEqual } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,7 +20,11 @@ import { closeBrowser, renderSlides } from './slides.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WORK = join(ROOT, 'work');
-const once = process.argv.includes('--once');
+const mode = process.argv.includes('--serve')
+  ? 'serve'
+  : process.argv.includes('--once')
+    ? 'once'
+    : 'poll';
 const pollMs = Number(process.env.POLL_INTERVAL_SECONDS || 15) * 1000;
 const concurrency = process.env.REMOTION_CONCURRENCY || null;
 
@@ -56,27 +66,109 @@ async function handle(job) {
 }
 
 let stopping = false;
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    if (stopping) process.exit(1);
-    stopping = true;
-    console.log('Encerrando depois do job atual (de novo para forçar).');
-  });
+
+/** Renderiza até a fila esvaziar e fecha o Chromium, para não ocupar memória parado. */
+async function drain() {
+  let done = 0;
+  while (!stopping) {
+    let job = null;
+    try {
+      job = await api.claim();
+    } catch (error) {
+      console.error(`${stamp()}  fila indisponível: ${error.message}`);
+      break;
+    }
+    if (!job) break;
+    await handle(job);
+    done++;
+  }
+  await closeBrowser();
+  return done;
 }
 
-console.log(`${stamp()}  worker do Estúdio ligado em ${STUDIO_API_URL}`);
-while (!stopping) {
-  let job = null;
-  try {
-    job = await api.claim();
-  } catch (error) {
-    console.error(`${stamp()}  fila indisponível: ${error.message}`);
-  }
-  if (job) {
-    await handle(job);
-    continue;
-  }
-  if (once) break;
-  await new Promise((done) => setTimeout(done, pollMs));
+// ---------- Modo serve: dorme até a API chamar ----------
+
+function authorized(header) {
+  const given = Buffer.from(header?.startsWith('Bearer ') ? header.slice(7) : '');
+  const expected = Buffer.from(STUDIO_WORKER_TOKEN);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
-await closeBrowser();
+
+function serve() {
+  let draining = null;
+  // Pedido que chegou durante uma rodada: roda de novo no fim, para não perder o conteúdo.
+  let again = false;
+  const wake = () => {
+    if (draining) {
+      again = true;
+      return;
+    }
+    draining = (async () => {
+      do {
+        again = false;
+        const done = await drain();
+        if (done > 0) console.log(`${stamp()}  fila vazia; dormindo`);
+      } while (again && !stopping);
+    })().finally(() => {
+      draining = null;
+    });
+  };
+
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? '/', 'http://worker').pathname;
+    if (request.method === 'GET' && path === '/health') {
+      response.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+      return;
+    }
+    if (request.method === 'POST' && path === '/wake') {
+      if (!authorized(request.headers.authorization)) {
+        response.writeHead(401).end();
+        return;
+      }
+      // Responde logo: a API não espera a renderização.
+      response.writeHead(202).end();
+      wake();
+      return;
+    }
+    response.writeHead(404).end();
+  });
+
+  const port = Number(process.env.PORT || 8080);
+  // `::` aceita IPv4 e IPv6 (a rede privada da Railway usa IPv6).
+  server.listen(port, '::', () => {
+    console.log(`${stamp()}  worker do Estúdio esperando a API em :${port} (${STUDIO_API_URL})`);
+    // Ao ligar, confere a fila: pode ter sobrado algo de antes de dormir.
+    wake();
+  });
+
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      if (stopping) process.exit(1);
+      stopping = true;
+      console.log('Encerrando depois do job atual (de novo para forçar).');
+      server.close();
+      void (draining ?? Promise.resolve()).then(() => process.exit(0));
+    });
+  }
+}
+
+// ---------- Modos poll e once: consultam a fila ----------
+
+async function poll() {
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      if (stopping) process.exit(1);
+      stopping = true;
+      console.log('Encerrando depois do job atual (de novo para forçar).');
+    });
+  }
+  console.log(`${stamp()}  worker do Estúdio ligado em ${STUDIO_API_URL}`);
+  while (!stopping) {
+    await drain();
+    if (mode === 'once') break;
+    await new Promise((done) => setTimeout(done, pollMs));
+  }
+}
+
+if (mode === 'serve') serve();
+else await poll();
