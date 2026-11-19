@@ -4,12 +4,14 @@ import { readFile } from 'node:fs/promises';
 
 export class StudioApi {
   constructor(baseUrl, token) {
-    this.base = `${baseUrl.replace(/\/+$/, '')}/v1/studio/worker`;
+    const root = baseUrl.replace(/\/+$/, '');
+    this.base = `${root}/v1/studio/worker`;
+    this.aiBase = `${root}/v1/ai/worker`;
     this.token = token;
   }
 
-  async #post(path, body) {
-    const response = await fetch(`${this.base}${path}`, {
+  async #post(path, body, base = this.base) {
+    const response = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.token}`,
@@ -66,6 +68,26 @@ export class StudioApi {
 
   complete(job, files) {
     return this.#post(`/jobs/${job.contentId}/complete`, { version: job.version, files });
+  }
+
+  // ---------- IA no PC (Claude Code) ----------
+
+  /** Próximo pedido de IA, ou `null`. Também avisa a API que o PC está online. */
+  async claimAi() {
+    return (await this.#post('/claim', undefined, this.aiBase)).job;
+  }
+
+  completeAi(job, output) {
+    return this.#post(`/jobs/${job.id}/complete`, { output }, this.aiBase);
+  }
+
+  failAi(job, error) {
+    return this.#post(`/jobs/${job.id}/fail`, { error: String(error).slice(0, 1000) }, this.aiBase);
+  }
+
+  /** PNG (base64) da capa com o renderizador da API, ou o motivo da recusa. */
+  renderCover(job, svg) {
+    return this.#post(`/jobs/${job.id}/render`, { svg }, this.aiBase);
   }
 
   fail(job, error) {

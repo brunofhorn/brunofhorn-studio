@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { claudeAvailable, handleAiJob } from './ai.mjs';
 import { StudioApi } from './api.mjs';
 import { renderReel } from './reel.mjs';
 import { closeBrowser, renderSlides } from './slides.mjs';
@@ -36,6 +37,8 @@ if (!STUDIO_API_URL || !STUDIO_WORKER_TOKEN) {
 
 const api = new StudioApi(STUDIO_API_URL, STUDIO_WORKER_TOKEN);
 const stamp = () => new Date().toLocaleTimeString('pt-BR');
+// Com o Claude Code instalado e logado, este PC também atende a fila de IA (Configurações › PC).
+const ai = claudeAvailable();
 
 async function handle(job) {
   const log = (message) => console.log(`${stamp()}  ${job.contentId.slice(0, 8)}  ${message}`);
@@ -67,10 +70,30 @@ async function handle(job) {
 
 let stopping = false;
 
-/** Renderiza até a fila esvaziar e fecha o Chromium, para não ocupar memória parado. */
+/** Um pedido de IA, se houver: o conteúdo escrito costuma gerar uma renderização logo depois. */
+async function nextAi() {
+  if (!ai) return false;
+  let job = null;
+  try {
+    job = await api.claimAi();
+  } catch (error) {
+    console.error(`${stamp()}  fila de IA indisponível: ${error.message}`);
+    return false;
+  }
+  if (!job) return false;
+  const log = (message) => console.log(`${stamp()}  ${job.id.slice(0, 8)}  ${message}`);
+  await handleAiJob(job, { api, work: WORK, log });
+  return true;
+}
+
+/** Atende as filas até esvaziarem e fecha o Chromium, para não ocupar memória parado. */
 async function drain() {
   let done = 0;
   while (!stopping) {
+    if (await nextAi()) {
+      done++;
+      continue;
+    }
     let job = null;
     try {
       job = await api.claim();
@@ -163,6 +186,13 @@ async function poll() {
     });
   }
   console.log(`${stamp()}  worker do Estúdio ligado em ${STUDIO_API_URL}`);
+  console.log(
+    ai
+      ? `${stamp()}  Claude Code encontrado: este PC atende a IA do painel (Configurações › PC)`
+      : process.env.STUDIO_AI === 'off'
+        ? `${stamp()}  STUDIO_AI=off: só renderização (apague a linha no .env para atender a IA)`
+        : `${stamp()}  sem Claude Code: só renderização (instale e faça login para atender a IA)`,
+  );
   while (!stopping) {
     await drain();
     if (mode === 'once') break;

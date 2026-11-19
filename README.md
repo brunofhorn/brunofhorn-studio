@@ -46,6 +46,28 @@ Troque `api` e `studio` pelos nomes dos serviços no seu projeto. A API acorda o
 IA termina, quando um slide ou cena é editado e no botão "Renderizar de novo"; se a fila ficar
 parada (o worker não acordou ou caiu no meio), o agendador da API tenta de novo a cada 5 minutos.
 
+## IA no PC (Claude Code)
+
+Com o motor de IA em **PC** (admin › Configurações, o padrão), a API não chama o Claude: ela
+grava o pedido numa fila e este worker, rodando no seu computador com `npm start`, executa com
+o Claude Code logado na sua assinatura ([src/ai.mjs](src/ai.mjs)):
+
+1. A cada 15 s o worker pergunta à API se há pedido (`POST /v1/ai/worker/claim`). Isso também
+   marca o PC como online nas Configurações.
+2. A API manda as instruções, o pedido e o JSON Schema da resposta. O worker roda
+   `claude -p --json-schema ...` numa pasta temporária e devolve o resultado.
+3. A API confere o formato e salva como se tivesse escrito; o admin atualiza sozinho.
+
+- **Conteúdos do Estúdio**: uma chamada, sem ferramentas.
+- **Capas**: as imagens vão para a pasta, o Claude Code desenha o SVG, a API renderiza com o
+  mesmo renderizador da capa final (`/render`) e o Claude Code revisa olhando o PNG.
+
+O worker só atende a IA se achar o `claude` no PATH (instalado e logado). Variáveis opcionais:
+`CLAUDE_MODEL` (padrão: o do Claude Code), `CLAUDE_EFFORT` (padrão `medium`), `CLAUDE_BIN` e
+`STUDIO_AI=off` para só renderizar. Cada geração usa a cota da sua assinatura; se ela acabar, o
+pedido falha com o aviso do Claude Code e dá para pedir de novo depois. Com o PC desligado, os
+pedidos esperam na fila. O worker da Railway (modo `serve`) não tem Claude Code e só renderiza.
+
 ## Áudio dos reels
 
 Segue a identidade do perfil (admin › Perfis › Briefing e marca):
