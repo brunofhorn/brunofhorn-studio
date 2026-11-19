@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { claudeAvailable, handleAiJob } from './ai.mjs';
 import { StudioApi } from './api.mjs';
-import { renderReel } from './reel.mjs';
+import { REEL_BROWSER, renderReel } from './reel.mjs';
 import { closeBrowser, renderSlides } from './slides.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -160,6 +160,7 @@ function serve() {
   // `::` aceita IPv4 e IPv6 (a rede privada da Railway usa IPv6).
   server.listen(port, '::', () => {
     console.log(`${stamp()}  worker do Estúdio esperando a API em :${port} (${STUDIO_API_URL})`);
+    console.log(`${stamp()}  navegador dos reels: ${REEL_BROWSER ?? 'o do Remotion'}`);
     // Ao ligar, confere a fila: pode ter sobrado algo de antes de dormir.
     wake();
   });
@@ -186,6 +187,7 @@ async function poll() {
     });
   }
   console.log(`${stamp()}  worker do Estúdio ligado em ${STUDIO_API_URL}`);
+  console.log(`${stamp()}  navegador dos reels: ${REEL_BROWSER ?? 'o do Remotion'}`);
   console.log(
     ai
       ? `${stamp()}  Claude Code encontrado: este PC atende a IA do painel (Configurações › PC)`

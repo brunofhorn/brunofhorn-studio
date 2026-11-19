@@ -2,7 +2,9 @@
 // os scripts da skill e renderiza com o template Remotion em `reel/`.
 
 import { spawn } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +20,35 @@ const HEIGHT = 1920;
 /** Quadro da capa: 1 s, com o gancho já na tela. */
 const COVER_FRAME = 30;
 const WORDS_PER_SECOND = 2.9;
+
+/**
+ * O Chrome headless do Playwright (o mesmo dos slides). Na imagem Docker ele já vem instalado,
+ * e o Remotion não precisa baixar o dele na hora do render (o download falhava na Railway).
+ * `REMOTION_BROWSER` aponta outro executável; sem nenhum, o Remotion usa o próprio.
+ */
+function playwrightShell() {
+  if (process.env.REMOTION_BROWSER) return process.env.REMOTION_BROWSER;
+  const base =
+    process.env.PLAYWRIGHT_BROWSERS_PATH ||
+    (process.platform === 'win32'
+      ? join(process.env.LOCALAPPDATA ?? '', 'ms-playwright')
+      : join(homedir(), process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ms-playwright'));
+  if (!existsSync(base)) return null;
+  const folders = readdirSync(base)
+    .filter((name) => name.startsWith('chromium_headless_shell-'))
+    .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
+  const binary = process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
+  for (const folder of folders) {
+    for (const platform of readdirSync(join(base, folder))) {
+      const candidate = join(base, folder, platform, binary);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+const BROWSER = playwrightShell();
+export const REEL_BROWSER = BROWSER;
 
 const require = createRequire(import.meta.url);
 const remotionCli = join(dirname(require.resolve('@remotion/cli/package.json')), 'remotion-cli.js');
@@ -111,7 +142,11 @@ export async function renderReel(job, dir, { log, concurrency }) {
     }
   }
 
-  const common = [`--props=${props}`, `--public-dir=${publicDir}`];
+  const common = [
+    `--props=${props}`,
+    `--public-dir=${publicDir}`,
+    ...(BROWSER ? [`--browser-executable=${BROWSER}`] : []),
+  ];
   const video = join(dir, 'reel.mp4');
   const cover = join(dir, 'capa.jpg');
   log('renderizando o vídeo');
