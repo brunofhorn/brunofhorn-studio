@@ -4,8 +4,10 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { alinhar } from './alinhar.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPTS = join(ROOT, 'scripts');
@@ -58,7 +60,7 @@ function estimateSeconds(cenas) {
 }
 
 async function download(url, path) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
   if (!response.ok) throw new Error(`Não consegui baixar ${url} (${response.status})`);
   await writeFile(path, Buffer.from(await response.arrayBuffer()));
 }
@@ -71,8 +73,28 @@ export async function renderReel(job, dir, { log, concurrency }) {
 
   for (const asset of job.assets) await download(asset.url, join(publicDir, asset.name));
 
-  const audio = job.audio ?? { narration: null, sfx: false, music: false };
-  if (audio.narration) {
+  const audio = job.audio ?? { narration: null, voiceover: null, sfx: false, music: false };
+  let seconds = estimateSeconds(job.reel.cenas);
+  if (audio.voiceover) {
+    // Narração gravada pela pessoa: as cenas e a legenda seguem o ritmo da gravação.
+    log('alinhando a narração enviada ao roteiro');
+    const file = `narracao${extname(new URL(audio.voiceover.url).pathname) || '.mp3'}`;
+    await download(audio.voiceover.url, join(publicDir, file));
+    const tempos = await alinhar({
+      audioPath: join(publicDir, file),
+      cenas: job.reel.cenas,
+      remotionCli,
+      apiKey: process.env.ELEVENLABS_API_KEY,
+      log,
+    });
+    log(`narração de ${tempos.duracao.toFixed(1)} s (${tempos.metodo})`);
+    await writeFile(join(publicDir, 'palavras.json'), JSON.stringify(tempos));
+    await writeFile(
+      props,
+      `${JSON.stringify({ ...job.reel, narracao: file, palavras: 'palavras.json' }, null, 2)}\n`,
+    );
+    seconds = tempos.duracao;
+  } else if (audio.narration) {
     if (process.env.ELEVENLABS_API_KEY) {
       log('narrando com o ElevenLabs');
       const voice = audio.narration.voiceId ? ['--voz', audio.narration.voiceId] : [];
@@ -83,8 +105,7 @@ export async function renderReel(job, dir, { log, concurrency }) {
   }
   if (audio.sfx || audio.music) {
     log('gerando trilha e efeitos');
-    const seconds = Math.ceil(estimateSeconds(job.reel.cenas) + 3);
-    await run([join(SCRIPTS, 'gerar-audio.mjs'), publicDir, String(seconds)]);
+    await run([join(SCRIPTS, 'gerar-audio.mjs'), publicDir, String(Math.ceil(seconds + 3))]);
     if (audio.music) {
       await run([join(SCRIPTS, 'mixar.mjs'), join(publicDir, 'trilha-bruta.wav'), '--projeto', dir]);
     }

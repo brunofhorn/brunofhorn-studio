@@ -56,6 +56,13 @@ Segue a identidade do perfil (admin › Perfis › Briefing e marca):
   `ELEVENLABS_API_KEY` deste worker e a voz do perfil (ou `ELEVENLABS_VOICE_ID`). Sem chave, o
   reel sai sem voz, com a legenda animada.
 
+- **Narração enviada** (reel em duas etapas): a IA entrega o roteiro, você grava lendo as falas
+  e envia o áudio pelo admin. O worker baixa o arquivo e descobre quando cada palavra é dita
+  ([src/alinhar.mjs](src/alinhar.mjs)): com `ELEVENLABS_API_KEY`, pelo alinhamento forçado da
+  ElevenLabs (custa pouco, não gera voz); sem a chave, espalhando as palavras pela duração da
+  gravação (as cenas acompanham o tamanho do áudio, mas a legenda fica aproximada). O resultado é
+  o mesmo `palavras.json` do `narrar.mjs`, então cenas, legenda e trilha seguem a sua fala.
+
 `scripts/` e `reel/` são cópias da skill `reel`. Ao atualizar a skill, copie de novo
 `template/src` para `reel/src` e os scripts para `scripts/`.
 
