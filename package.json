@@ -1,0 +1,27 @@
+{
+  "name": "brunofhorn-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Worker que renderiza os conteúdos do Estúdio (Perfis no admin): slides em JPG e reels em MP4",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/worker.mjs",
+    "once": "node --env-file-if-exists=.env src/worker.mjs --once",
+    "setup": "playwright install chromium && remotion browser ensure",
+    "studio": "remotion studio --props=./reel/cenas.json"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.409",
+    "playwright": "1.65.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.409"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "typescript": "5.7.2"
+  }
+}
