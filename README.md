@@ -12,7 +12,7 @@ Os arquivos vão direto para o bucket público do R2 por URL temporária; a API 
 
 ## Rodar
 
-Node 20.19+ e, para a trilha dos reels, ffmpeg no PATH.
+Node 20.19+. O ffmpeg no PATH é opcional: com ele, `mixar.mjs` nivela o volume da trilha.
 
 ```bash
 npm install

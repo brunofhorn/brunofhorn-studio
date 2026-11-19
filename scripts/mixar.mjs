@@ -43,9 +43,11 @@ if (arqPalavras && fs.existsSync(arqPalavras)) duracao = JSON.parse(fs.readFileS
 else duracao = estimarTempos(dados.cenas).duracao;
 duracao = Math.ceil(duracao * 10) / 10 + 0.5;
 
-const destino = path.join(projeto, 'public', 'trilha.mp3');
-fs.mkdirSync(path.dirname(destino), { recursive: true });
 const temFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
+// Sem ffmpeg não há conversão: a cópia mantém a extensão da origem (um WAV continua .wav).
+const nome = temFfmpeg ? 'trilha.mp3' : `trilha${path.extname(origem).toLowerCase() || '.mp3'}`;
+const destino = path.join(projeto, 'public', nome);
+fs.mkdirSync(path.dirname(destino), { recursive: true });
 
 if (temFfmpeg) {
   const inicio = args.inicio ? Number(args.inicio) : 0;
@@ -65,6 +67,6 @@ if (temFfmpeg) {
   console.log('O volume vai depender de como a faixa foi masterizada; ajuste "volumeTrilha" no cenas.json se ficar alto.');
 }
 
-dados.trilha = 'trilha.mp3';
+dados.trilha = nome;
 salvarCenas(arq, dados);
 console.log('cenas.json atualizado (trilha). No render, a música baixa sozinha quando há voz.');
